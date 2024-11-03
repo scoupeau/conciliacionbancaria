@@ -1,0 +1,208 @@
+import pandas as pd
+import tkinter as tk
+from tkinter import ttk, filedialog, messagebox
+from datetime import datetime
+
+class ConciliacionBancaria:
+    def __init__(self):
+        self.root = tk.Tk()
+        self.root.title("Conciliación Bancaria")
+        self.root.geometry("1400x800")
+        
+        # Almacenamiento de datos
+        self.facturas_df = None
+        self.pagos_df = None
+        self.conciliaciones = {}
+        
+        self.setup_ui()
+        
+    def setup_ui(self):
+        # Frame principal
+        main_frame = ttk.Frame(self.root, padding="10")
+        main_frame.grid(row=0, column=0, sticky=(tk.W, tk.E, tk.N, tk.S))
+        
+        # Botones de carga
+        ttk.Button(main_frame, text="Cargar Facturas", command=self.cargar_facturas).grid(row=0, column=0, padx=5, pady=5)
+        ttk.Button(main_frame, text="Cargar Movimientos Banco", command=self.cargar_pagos).grid(row=0, column=1, padx=5, pady=5)
+        
+        # Panel izquierdo: Facturas pendientes
+        facturas_frame = ttk.LabelFrame(main_frame, text="Facturas Pendientes", padding="5")
+        facturas_frame.grid(row=1, column=0, padx=5, pady=5, sticky=(tk.W, tk.E, tk.N, tk.S))
+        
+        # Configuración del Treeview de facturas
+        self.facturas_tree = ttk.Treeview(facturas_frame, columns=(
+            'serie', 'codigo', 'fecha', 'nombre', 'cifnif', 
+            'neto', 'iva', 'totaliva', 'recargo', 'totalrecargo',
+            'irpf', 'totalirpf', 'suplidos', 'total'
+        ), show='headings')
+        
+        # Configurar encabezados y anchos de columnas para facturas
+        column_widths = {
+            'serie': 60, 'codigo': 80, 'fecha': 100, 'nombre': 200, 'cifnif': 100,
+            'neto': 90, 'iva': 60, 'totaliva': 90, 'recargo': 70, 'totalrecargo': 90,
+            'irpf': 60, 'totalirpf': 90, 'suplidos': 90, 'total': 100
+        }
+        
+        for col, width in column_widths.items():
+            self.facturas_tree.heading(col, text=col.title())
+            self.facturas_tree.column(col, width=width)
+        
+        # Agregar scrollbar para facturas
+        scrollbar_facturas = ttk.Scrollbar(facturas_frame, orient="horizontal", command=self.facturas_tree.xview)
+        self.facturas_tree.configure(xscrollcommand=scrollbar_facturas.set)
+        scrollbar_facturas.grid(row=1, column=0, sticky="ew")
+        self.facturas_tree.grid(row=0, column=0, sticky=(tk.W, tk.E, tk.N, tk.S))
+        
+        # Panel derecho: Movimientos bancarios
+        pagos_frame = ttk.LabelFrame(main_frame, text="Movimientos Bancarios", padding="5")
+        pagos_frame.grid(row=1, column=1, padx=5, pady=5, sticky=(tk.W, tk.E, tk.N, tk.S))
+        
+        # Configuración del Treeview de movimientos bancarios
+        self.pagos_tree = ttk.Treeview(pagos_frame, columns=(
+            'FechaOperacion', 'FechaValor', 'Concepto', 'Importe', 'Divisa', 'Saldo'
+        ), show='headings')
+        
+        # Configurar encabezados y anchos de columnas para movimientos
+        movimientos_widths = {
+            'FechaOperacion': 100, 'FechaValor': 100, 'Concepto': 250,
+            'Importe': 100, 'Divisa': 60, 'Saldo': 100
+        }
+        
+        for col, width in movimientos_widths.items():
+            self.pagos_tree.heading(col, text=col.replace('Fecha', 'Fecha ').title())
+            self.pagos_tree.column(col, width=width)
+        
+        # Agregar scrollbar para movimientos
+        scrollbar_pagos = ttk.Scrollbar(pagos_frame, orient="horizontal", command=self.pagos_tree.xview)
+        self.pagos_tree.configure(xscrollcommand=scrollbar_pagos.set)
+        scrollbar_pagos.grid(row=1, column=0, sticky="ew")
+        self.pagos_tree.grid(row=0, column=0, sticky=(tk.W, tk.E, tk.N, tk.S))
+        
+        # Panel de conciliación
+        conciliacion_frame = ttk.LabelFrame(main_frame, text="Conciliación", padding="5")
+        conciliacion_frame.grid(row=2, column=0, columnspan=2, padx=5, pady=5, sticky=(tk.W, tk.E))
+        
+        ttk.Label(conciliacion_frame, text="Cliente:").grid(row=0, column=0, padx=5, pady=5)
+        self.cliente_combo = ttk.Combobox(conciliacion_frame, state="readonly", width=50)
+        self.cliente_combo.grid(row=0, column=1, padx=5, pady=5)
+        
+        ttk.Button(conciliacion_frame, text="Conciliar", command=self.conciliar).grid(row=0, column=2, padx=5, pady=5)
+        ttk.Button(conciliacion_frame, text="Generar Reporte", command=self.generar_reporte).grid(row=0, column=3, padx=5, pady=5)
+
+    def cargar_facturas(self):
+        filename = filedialog.askopenfilename(filetypes=[("Excel files", "*.xlsx")])
+        if filename:
+            try:
+                self.facturas_df = pd.read_excel(filename)
+                self.actualizar_facturas_tree()
+                self.actualizar_clientes_combo()
+            except Exception as e:
+                messagebox.showerror("Error", f"Error al cargar archivo: {str(e)}")
+    
+    def cargar_pagos(self):
+        filename = filedialog.askopenfilename(filetypes=[("Excel files", "*.xlsx")])
+        if filename:
+            try:
+                self.pagos_df = pd.read_excel(filename)
+                # Renombrar columnas eliminando espacios
+                self.pagos_df.columns = [c.replace(' ', '') for c in self.pagos_df.columns]
+                self.actualizar_pagos_tree()
+            except Exception as e:
+                messagebox.showerror("Error", f"Error al cargar archivo: {str(e)}")
+
+    def actualizar_facturas_tree(self):
+        for item in self.facturas_tree.get_children():
+            self.facturas_tree.delete(item)
+            
+        if self.facturas_df is not None:
+            for _, row in self.facturas_df.iterrows():
+                valores = []
+                for col in self.facturas_tree['columns']:
+                    valor = row[col]
+                    if isinstance(valor, (int, float)):
+                        valor = f"${valor:,.2f}"
+                    elif isinstance(valor, datetime):
+                        valor = valor.strftime('%d/%m/%Y')
+                    valores.append(valor)
+                
+                self.facturas_tree.insert('', 'end', values=valores)
+
+    def actualizar_pagos_tree(self):
+        for item in self.pagos_tree.get_children():
+            self.pagos_tree.delete(item)
+            
+        if self.pagos_df is not None:
+            for _, row in self.pagos_df.iterrows():
+                valores = [
+                    row['FechaOperacion'].strftime('%d/%m/%Y') if isinstance(row['FechaOperacion'], datetime) else row['FechaOperacion'],
+                    row['FechaValor'].strftime('%d/%m/%Y') if isinstance(row['FechaValor'], datetime) else row['FechaValor'],
+                    row['Concepto'],
+                    f"${row['Importe']:,.2f}",
+                    row['Divisa'],
+                    f"${row['Saldo']:,.2f}"
+                ]
+                self.pagos_tree.insert('', 'end', values=valores)
+
+    def actualizar_clientes_combo(self):
+        if self.facturas_df is not None:
+            clientes = sorted(self.facturas_df['nombre'].unique())
+            self.cliente_combo['values'] = clientes
+            if clientes:
+                self.cliente_combo.set(clientes[0])
+
+    def conciliar(self):
+        selected_factura = self.facturas_tree.selection()
+        selected_pago = self.pagos_tree.selection()
+        
+        if not selected_factura or not selected_pago:
+            messagebox.showwarning("Advertencia", "Por favor selecciona una factura y un movimiento bancario para conciliar")
+            return
+            
+        factura_data = self.facturas_tree.item(selected_factura[0])['values']
+        pago_data = self.pagos_tree.item(selected_pago[0])['values']
+        
+        # Guardar conciliación
+        factura_id = f"{factura_data[0]}-{factura_data[1]}"  # serie-codigo
+        self.conciliaciones[factura_id] = {
+            'serie': factura_data[0],
+            'codigo': factura_data[1],
+            'fecha_factura': factura_data[2],
+            'cliente': factura_data[3],
+            'cifnif': factura_data[4],
+            'total_factura': float(factura_data[13].replace('$', '').replace(',', '')),
+            'fecha_operacion': pago_data[0],
+            'fecha_valor': pago_data[1],
+            'concepto_pago': pago_data[2],
+            'importe_pago': float(pago_data[3].replace('$', '').replace(',', '')),
+            'divisa': pago_data[4]
+        }
+        
+        # Eliminar items conciliados de los árboles
+        self.facturas_tree.delete(selected_factura[0])
+        self.pagos_tree.delete(selected_pago[0])
+        
+        messagebox.showinfo("Éxito", "Conciliación realizada correctamente")
+
+    def generar_reporte(self):
+        if not self.conciliaciones:
+            messagebox.showwarning("Advertencia", "No hay conciliaciones para generar reporte")
+            return
+            
+        filename = filedialog.asksaveasfilename(
+            defaultextension=".xlsx",
+            filetypes=[("Excel files", "*.xlsx")]
+        )
+        
+        if filename:
+            df_reporte = pd.DataFrame.from_dict(self.conciliaciones, orient='index')
+            # Calcular diferencia entre importe factura y pago
+            df_reporte['diferencia'] = df_reporte['importe_pago'] - df_reporte['total_factura']
+            df_reporte.to_excel(filename, index=False)
+            messagebox.showinfo("Éxito", "Reporte generado correctamente")
+
+    def run(self):
+        self.root.mainloop()
+
+if __name__ == "__main__":
+    app = ConciliacionBancaria()
+    app.run()
